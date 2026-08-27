@@ -129,6 +129,62 @@ function speak(word) {
   window.speechSynthesis.speak(u);
 }
 
+/* ---------------- 音效（用 Web Audio 合成，不依赖音频文件） ---------------- */
+
+let audioCtx = null;
+function getAudioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function playTone(ctx, freq, startTime, duration, opts = {}) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = opts.type || "sine";
+  osc.frequency.setValueAtTime(freq, startTime);
+  if (opts.freqTo) {
+    osc.frequency.exponentialRampToValueAtTime(opts.freqTo, startTime + duration);
+  }
+  const peak = opts.volume != null ? opts.volume : 0.15;
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(peak, startTime + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.03);
+}
+
+// 打字音效：每次敲键盘一个短促清脆的"嗒"声，音高做一点随机浮动听着不单调
+function playTypeSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  playTone(ctx, 1500 + Math.random() * 300, ctx.currentTime, 0.045, {
+    type: "sine",
+    volume: 0.05,
+  });
+}
+
+// 答对音效：上扬的两个音，清脆愉快的"叮咚"
+function playCorrectSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  playTone(ctx, 880, now, 0.12, { type: "sine", volume: 0.2 });
+  playTone(ctx, 1318.5, now + 0.09, 0.22, { type: "sine", volume: 0.2 });
+}
+
+// 答错音效：短促下沉的"哔——"，但不刺耳
+function playWrongSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  playTone(ctx, 320, now, 0.22, { type: "sine", freqTo: 160, volume: 0.18 });
+}
+
 /* ---------------- 词库工具函数 ---------------- */
 
 // 单词的听写顺序需要和 PDF 原文顺序保持一致，这里按 WORD_BANK 的声明顺序
@@ -327,6 +383,8 @@ function submitAnswer() {
   session.answered = true;
   session.lastUserAnswer = userAnswer;
   saveSessionState();
+  if (correct) playCorrectSound();
+  else playWrongSound();
   render();
 }
 
@@ -613,6 +671,14 @@ function bindDictation() {
 
   const input = document.getElementById("answerInput");
   if (input && !session.answered) input.focus();
+  if (input) {
+    input.addEventListener("keydown", (e) => {
+      // 只有真正会改变输入内容的键才发出打字音效（字母数字符号、退格、删除）
+      if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
+        playTypeSound();
+      }
+    });
+  }
 
   if (!session.answered) {
     const submitBtn = document.getElementById("submitBtn");
