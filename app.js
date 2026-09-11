@@ -105,11 +105,19 @@ function loadVoices() {
 if ("speechSynthesis" in window) {
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
+  // 有些浏览器（尤其是 Chrome）首次加载时 getVoices() 可能返回空数组，
+  // 且 onvoiceschanged 事件不一定会触发，这里做几次轮询兜底
+  let voiceRetries = 0;
+  const voicePoll = setInterval(() => {
+    voiceRetries++;
+    loadVoices();
+    if (voices.length || voiceRetries > 10) clearInterval(voicePoll);
+  }, 300);
 }
 function pickBritishVoice() {
   if (!voices.length) return null;
   return (
-    voices.find((v) => v.lang === "en-GB" && /female|female/i.test(v.name)) ||
+    voices.find((v) => v.lang === "en-GB" && /female/i.test(v.name)) ||
     voices.find((v) => v.lang === "en-GB") ||
     voices.find((v) => /en[-_]gb/i.test(v.lang)) ||
     voices.find((v) => /UK|British/i.test(v.name)) ||
@@ -119,14 +127,24 @@ function pickBritishVoice() {
 }
 function speak(word) {
   if (!("speechSynthesis" in window) || !word) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(word);
-  u.lang = "en-GB";
-  const v = pickBritishVoice();
-  if (v) u.voice = v;
-  u.rate = 0.85;
-  u.pitch = 1;
-  window.speechSynthesis.speak(u);
+  loadVoices(); // 朗读前再刷新一次，避免用到过期的空列表
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const doSpeak = () => {
+    const u = new SpeechSynthesisUtterance(word);
+    u.lang = "en-GB";
+    const v = pickBritishVoice();
+    if (v) u.voice = v;
+    u.rate = 0.85;
+    u.pitch = 1;
+    u.onerror = (e) => console.warn("语音朗读失败：", e.error);
+    synth.speak(u);
+    // Chrome 在标签页后台或长时间无操作后，speechSynthesis 可能进入“卡住”状态，
+    // 需要 resume() 才能继续播放
+    if (synth.paused) synth.resume();
+  };
+  // 紧跟 cancel() 之后立即 speak() 在 Chrome 上有时会静默失效，稍作延迟更稳妥
+  setTimeout(doSpeak, 50);
 }
 
 /* ---------------- 音效（用 Web Audio 合成，不依赖音频文件） ---------------- */
