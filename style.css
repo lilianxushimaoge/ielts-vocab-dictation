@@ -390,6 +390,8 @@ table.record-table th, table.record-table td {
 table.record-table td.ok { color: var(--correct); }
 table.record-table td.no { color: var(--wrong); }
 
+.day-item-wrap { border-bottom: 1px solid var(--border); }
+.day-item-wrap:last-child { border-bottom: none; }
 .day-item {
   display: flex;
   align-items: center;
@@ -397,12 +399,42 @@ table.record-table td.no { color: var(--wrong); }
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
 }
-.day-item:last-child { border-bottom: none; }
 .day-item .info .date { font-weight: 600; }
 .day-item .info .stats { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .day-item .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.day-detail {
+  padding: 4px 0 16px;
+}
+.detail-theme { margin-bottom: 10px; }
+.detail-theme-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+.detail-category { margin: 0 0 8px 8px; }
+.detail-category-name {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.detail-word-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.detail-word {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--card-alt, #f1f1f1);
+  border: 1px solid var(--border);
+  cursor: default;
+}
+.detail-word.correct { color: var(--correct); border-color: var(--correct); background: var(--correct-bg); }
+.detail-word.wrong { color: var(--wrong); border-color: var(--wrong); background: var(--wrong-bg); }
 
 .empty-tip {
   text-align: center;

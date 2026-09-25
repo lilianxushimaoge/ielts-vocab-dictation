@@ -810,6 +810,49 @@ function bindWrongbook() {
 
 /* ---- 历史记录 / 导出 ---- */
 
+// 记录哪些日期的详情面板处于展开状态，切换标签页/重新渲染时保持展开状态不变
+let expandedHistoryDates = new Set();
+
+// 把某一天的记录按 主题 -> 分类 分组，方便详情面板按听写时的结构展示
+function groupRecordsByThemeCategory(records) {
+  const map = new Map();
+  records.forEach((r) => {
+    const themeName = r.themeName || "未知主题";
+    const categoryName = r.categoryName || "未分类";
+    if (!map.has(themeName)) map.set(themeName, new Map());
+    const catMap = map.get(themeName);
+    if (!catMap.has(categoryName)) catMap.set(categoryName, []);
+    catMap.get(categoryName).push(r);
+  });
+  return map;
+}
+
+function renderDayDetail(date) {
+  const records = loadRecords().filter((r) => r.date === date);
+  const grouped = groupRecordsByThemeCategory(records);
+  let html = '<div class="day-detail">';
+  grouped.forEach((catMap, themeName) => {
+    html += `<div class="detail-theme"><div class="detail-theme-name">${escapeHtml(themeName)}</div>`;
+    catMap.forEach((words, categoryName) => {
+      html += `<div class="detail-category"><div class="detail-category-name">${escapeHtml(
+        categoryName
+      )}（${words.length} 词）</div><div class="detail-word-list">`;
+      words.forEach((w) => {
+        const tip = w.correct
+          ? w.zh
+          : `${w.zh} · 你的作答：${w.userAnswer ? w.userAnswer : "(空)"}`;
+        html += `<span class="detail-word ${w.correct ? "correct" : "wrong"}" title="${escapeHtml(
+          tip
+        )}">${escapeHtml(w.en)}${w.correct ? "" : " ✗"}</span>`;
+      });
+      html += "</div></div>";
+    });
+    html += "</div>";
+  });
+  html += "</div>";
+  return html;
+}
+
 function renderHistory() {
   let html = '<div class="card"><h2>历史记录</h2>';
   const dates = getDates();
@@ -820,9 +863,14 @@ function renderHistory() {
       '<div class="btn-row" style="margin-bottom:14px;"><button class="btn secondary" id="exportAllBtn">导出全部记录</button></div>';
     dates.forEach((d) => {
       const wrongCount = d.total - d.correct;
-      html += `<div class="day-item">
+      const expanded = expandedHistoryDates.has(d.date);
+      html += `<div class="day-item-wrap">
+      <div class="day-item">
         <div class="info"><div class="date">${d.date}</div><div class="stats">共 ${d.total} 词，正确 ${d.correct}，错误 ${wrongCount}</div></div>
         <div class="actions">
+          <button class="btn small secondary" data-toggle-detail="${d.date}">${
+        expanded ? "收起详情" : "查看详情"
+      }</button>
           <button class="btn small secondary" data-export="${d.date}">导出</button>
           ${
             wrongCount > 0
@@ -831,6 +879,8 @@ function renderHistory() {
           }
           <button class="btn small ghost danger" data-delete-day="${d.date}">删除本天记录</button>
         </div>
+      </div>
+      ${expanded ? renderDayDetail(d.date) : ""}
       </div>`;
     });
   }
@@ -842,6 +892,14 @@ function bindHistory() {
   const exportAllBtn = document.getElementById("exportAllBtn");
   if (exportAllBtn)
     exportAllBtn.onclick = () => exportRecordsCSV(loadRecords(), "雅思单词听写_全部记录.csv");
+  document.querySelectorAll("[data-toggle-detail]").forEach((el) => {
+    el.onclick = () => {
+      const date = el.dataset.toggleDetail;
+      if (expandedHistoryDates.has(date)) expandedHistoryDates.delete(date);
+      else expandedHistoryDates.add(date);
+      render();
+    };
+  });
   document.querySelectorAll("[data-export]").forEach((el) => {
     el.onclick = () => {
       const date = el.dataset.export;
@@ -864,6 +922,7 @@ function bindHistory() {
       const date = el.dataset.deleteDay;
       if (!confirm(`确定要删除 ${date} 这天的全部听写记录吗？此操作无法撤销。`)) return;
       deleteAllRecordsForDate(date);
+      expandedHistoryDates.delete(date);
       render();
     };
   });
