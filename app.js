@@ -254,6 +254,8 @@ function getThemeWords(themeKey, subset, categoryKeys) {
 
 function normalizeAnswer(s) {
   return String(s || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // 去掉音调符号，如 café 的 é 视同 e
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
@@ -702,16 +704,6 @@ function bindDictation() {
       if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
         playTypeSound();
       }
-      // Tab 键：重新朗读当前单词，同时阻止默认的焦点切换行为
-      if (e.key === "Tab") {
-        e.preventDefault();
-        speak(session.words[session.idx].en);
-        if (speakBtn) {
-          speakBtn.classList.remove("playing");
-          void speakBtn.offsetWidth;
-          speakBtn.classList.add("playing");
-        }
-      }
     });
   }
 
@@ -948,10 +940,24 @@ document.getElementById("mainTabs").addEventListener("click", (e) => {
 // 提交后输入框会被禁用（无法获得焦点/键盘事件），所以这里用 document 级别监听，
 // 而不是挂在输入框上，这样禁用状态下回车依然能触发"下一个"。
 document.addEventListener("keydown", (e) => {
-  if (mode !== "dictation" || !session || e.key !== "Enter") return;
-  e.preventDefault();
-  if (!session.answered) submitAnswer();
-  else nextWord();
+  if (mode !== "dictation" || !session) return;
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (!session.answered) submitAnswer();
+    else nextWord();
+    return;
+  }
+  // Tab 键：无论是否已提交答案（输入框是否被禁用），都重新朗读当前单词
+  if (e.key === "Tab") {
+    e.preventDefault();
+    speak(session.words[session.idx].en);
+    const speakBtn = document.getElementById("speakBtn");
+    if (speakBtn) {
+      speakBtn.classList.remove("playing");
+      void speakBtn.offsetWidth;
+      speakBtn.classList.add("playing");
+    }
+  }
 });
 
 render();
