@@ -180,9 +180,16 @@ function playTone(ctx, freq, startTime, duration, opts = {}) {
 function playTypeSound() {
   const ctx = getAudioCtx();
   if (!ctx) return;
-  playTone(ctx, 1500 + Math.random() * 300, ctx.currentTime, 0.045, {
-    type: "sine",
-    volume: 0.05,
+  const now = ctx.currentTime;
+  // 主音用三角波，谐波更丰富，听起来更清脆；时长比之前更短，衰减更快
+  playTone(ctx, 2600 + Math.random() * 500, now, 0.03, {
+    type: "triangle",
+    volume: 0.07,
+  });
+  // 叠加一个更高频的极短瞬态，模拟键帽敲击的"咔"声
+  playTone(ctx, 5200 + Math.random() * 800, now, 0.012, {
+    type: "square",
+    volume: 0.025,
   });
 }
 
@@ -694,6 +701,16 @@ function bindDictation() {
       // 只有真正会改变输入内容的键才发出打字音效（字母数字符号、退格、删除）
       if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete") {
         playTypeSound();
+      }
+      // Tab 键：重新朗读当前单词，同时阻止默认的焦点切换行为
+      if (e.key === "Tab") {
+        e.preventDefault();
+        speak(session.words[session.idx].en);
+        if (speakBtn) {
+          speakBtn.classList.remove("playing");
+          void speakBtn.offsetWidth;
+          speakBtn.classList.add("playing");
+        }
       }
     });
   }
