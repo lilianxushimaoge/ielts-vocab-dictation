@@ -425,6 +425,7 @@ function startSession() {
     answered: false,
     lastSpokenIdx: -1,
     lastUserAnswer: "",
+    peek: null,
   };
   mode = "dictation";
   saveSessionState();
@@ -451,6 +452,7 @@ function startWrongSession(date) {
     answered: false,
     lastSpokenIdx: -1,
     lastUserAnswer: "",
+    peek: null,
   };
   mode = "dictation";
   saveSessionState();
@@ -717,6 +719,7 @@ function bindHome() {
         answered: false,
         lastSpokenIdx: -1,
         lastUserAnswer: "",
+        peek: null,
       };
       mode = "dictation";
       render();
@@ -775,29 +778,55 @@ function bindHome() {
 
 function renderDictation() {
   const total = session.words.length;
-  const word = session.words[session.idx];
-  const progressPct = Math.round((session.idx / total) * 100);
+  const peek = session.peek;
+  const activeIdx = peek ? peek.idx : session.idx;
+  const word = session.words[activeIdx];
+  const progressPct = Math.round((activeIdx / total) * 100);
+  const answered = peek ? peek.answered : session.answered;
 
   let html = '<div class="card">';
   html += `<div class="dictation-topbar">
     <button class="exit-btn" id="exitSessionBtn" title="退出本次听写">‹ 退出</button>
   </div>`;
+
+  // 右上角小标签：未在翻看时显示"上一词"预览，点开后可以重做；正在翻看时显示"返回本词"
+  if (peek) {
+    html += `<button class="prev-peek-tab back" id="peekBackBtn">返回本词 ›</button>`;
+  } else if (session.idx > 0) {
+    const prevWord = session.words[session.idx - 1];
+    html += `<button class="prev-peek-tab" id="prevPeekBtn" title="回看并重新拼写上一个单词">
+      <span class="ppt-label">‹ 上一词</span>
+      <span class="ppt-word">${escapeHtml(prevWord.en)}</span>
+      <span class="ppt-zh">${escapeHtml(prevWord.zh)}</span>
+    </button>`;
+  }
+
   html += `<div class="progress-bar"><div style="width:${progressPct}%"></div></div>`;
-  html += `<div class="section-label">${session.themeName} · ${session.subsetName} · 第 ${
-    session.idx + 1
-  } / ${total} 个</div>`;
+  html += `<div class="section-label">${
+    peek ? "重温上一词（不影响错题记录）" : `${session.themeName} · ${session.subsetName}`
+  } · 第 ${activeIdx + 1} / ${total} 个</div>`;
   html += '<div class="dictation-stage">';
   html += `<input type="text" class="answer-input ${
-    session.answered ? (session.results[session.results.length - 1].correct ? "correct" : "wrong") : ""
+    answered ? (peek ? (peek.correct ? "correct" : "wrong") : session.results[session.results.length - 1].correct ? "correct" : "wrong") : ""
   }" id="answerInput" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="输入你听到的单词" ${
-    session.answered ? "disabled" : ""
-  } value="${session.answered ? escapeHtml(session.lastUserAnswer) : ""}" />`;
+    answered ? "disabled" : ""
+  } value="${answered ? escapeHtml(peek ? peek.userAnswer : session.lastUserAnswer) : ""}" />`;
   html += '<button class="speak-btn" id="speakBtn" title="点击听发音">🔊</button>';
   html += '<div class="hint-line">点击喇叭听英式发音（可反复点击），然后拼写出该单词</div>';
   html += "</div>";
 
-  if (!session.answered) {
+  if (!answered) {
     html += '<button class="btn" id="submitBtn">提交</button>';
+  } else if (peek) {
+    html += `<div class="feedback ${peek.correct ? "correct" : "wrong"}">`;
+    html += peek.correct ? "✅ 回答正确！" : "❌ 回答错误，正确答案是：";
+    html += `<div class="answer-word">${escapeHtml(word.en)}${
+      word.alt ? ` <span class="alt-spelling">/ ${escapeHtml(word.alt)}</span>` : ""
+    }</div>`;
+    html += `<div class="meaning">${escapeHtml(word.zh)}</div>`;
+    html += `<div class="hint-line" style="margin-top:6px;">这次重做不会改变错题记录，仍以第一次作答的结果为准</div>`;
+    html += "</div>";
+    html += '<button class="btn" id="peekBackBtn2">返回本词听写</button>';
   } else {
     const r = session.results[session.results.length - 1];
     html += `<div class="feedback ${r.correct ? "correct" : "wrong"}">`;
@@ -815,6 +844,39 @@ function renderDictation() {
   return html;
 }
 
+function openPrevPeek() {
+  if (session.idx <= 0) return;
+  session.peek = {
+    idx: session.idx - 1,
+    answered: false,
+    correct: null,
+    userAnswer: "",
+    spoken: false,
+  };
+  render();
+}
+
+function closePeek() {
+  session.peek = null;
+  render();
+}
+
+// 翻回上一词重做：不管这次拼对拼错都不写入任何记录，错题本状态只看第一次作答的结果
+function submitPeekAnswer() {
+  const input = document.getElementById("answerInput");
+  const userAnswer = input ? input.value : "";
+  const word = session.words[session.peek.idx];
+  const answerNorm = normalizeAnswer(userAnswer);
+  const correct =
+    answerNorm === normalizeAnswer(word.en) || (word.alt && answerNorm === normalizeAnswer(word.alt));
+  session.peek.answered = true;
+  session.peek.userAnswer = userAnswer;
+  session.peek.correct = correct;
+  if (correct) playCorrectSound();
+  else playWrongSound();
+  render();
+}
+
 function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
@@ -826,13 +888,24 @@ function escapeHtml(s) {
 }
 
 function bindDictation() {
+  const peek = session.peek;
+  const activeIdx = peek ? peek.idx : session.idx;
+  const answered = peek ? peek.answered : session.answered;
+
   const exitBtn = document.getElementById("exitSessionBtn");
   if (exitBtn) exitBtn.onclick = exitSession;
+
+  const prevPeekBtn = document.getElementById("prevPeekBtn");
+  if (prevPeekBtn) prevPeekBtn.onclick = openPrevPeek;
+  const peekBackBtn = document.getElementById("peekBackBtn");
+  if (peekBackBtn) peekBackBtn.onclick = closePeek;
+  const peekBackBtn2 = document.getElementById("peekBackBtn2");
+  if (peekBackBtn2) peekBackBtn2.onclick = closePeek;
 
   const speakBtn = document.getElementById("speakBtn");
   if (speakBtn) {
     speakBtn.onclick = () => {
-      speak(session.words[session.idx].en);
+      speak(session.words[activeIdx].en);
       speakBtn.classList.remove("playing");
       void speakBtn.offsetWidth; // 强制重排，让动画能重新触发
       speakBtn.classList.add("playing");
@@ -840,7 +913,7 @@ function bindDictation() {
   }
 
   const input = document.getElementById("answerInput");
-  if (input && !session.answered) input.focus();
+  if (input && !answered) input.focus();
   if (input) {
     input.addEventListener("keydown", (e) => {
       // 只有真正会改变输入内容的键才发出打字音效（字母数字符号、退格、删除）
@@ -850,17 +923,23 @@ function bindDictation() {
     });
   }
 
-  if (!session.answered) {
+  if (!answered) {
     const submitBtn = document.getElementById("submitBtn");
-    if (submitBtn) submitBtn.onclick = submitAnswer;
-  } else {
+    if (submitBtn) submitBtn.onclick = peek ? submitPeekAnswer : submitAnswer;
+  } else if (!peek) {
     const nextBtn = document.getElementById("nextBtn");
     if (nextBtn) nextBtn.onclick = nextWord;
   }
 
-  if (!session.answered && session.lastSpokenIdx !== session.idx) {
+  if (peek) {
+    if (!peek.answered && !peek.spoken) {
+      peek.spoken = true;
+      speak(session.words[activeIdx].en);
+      if (speakBtn) speakBtn.classList.add("playing");
+    }
+  } else if (!session.answered && session.lastSpokenIdx !== session.idx) {
     session.lastSpokenIdx = session.idx;
-    speak(session.words[session.idx].en);
+    speak(session.words[activeIdx].en);
     if (speakBtn) speakBtn.classList.add("playing");
   }
 }
@@ -1183,16 +1262,24 @@ document.getElementById("mainTabs").addEventListener("click", (e) => {
 // 而不是挂在输入框上，这样禁用状态下回车依然能触发"下一个"。
 document.addEventListener("keydown", (e) => {
   if (mode !== "dictation" || !session) return;
+  const peek = session.peek;
   if (e.key === "Enter") {
     e.preventDefault();
-    if (!session.answered) submitAnswer();
-    else nextWord();
+    if (peek) {
+      if (!peek.answered) submitPeekAnswer();
+      else closePeek();
+    } else if (!session.answered) {
+      submitAnswer();
+    } else {
+      nextWord();
+    }
     return;
   }
   // Tab 键：无论是否已提交答案（输入框是否被禁用），都重新朗读当前单词
   if (e.key === "Tab") {
     e.preventDefault();
-    speak(session.words[session.idx].en);
+    const activeIdx = peek ? peek.idx : session.idx;
+    speak(session.words[activeIdx].en);
     const speakBtn = document.getElementById("speakBtn");
     if (speakBtn) {
       speakBtn.classList.remove("playing");
