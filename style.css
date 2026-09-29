@@ -466,3 +466,26 @@ table.record-table td.no { color: var(--wrong); }
   color: var(--muted);
   margin: 16px 0 8px;
 }
+
+.review-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.review-option {
+  width: 100%;
+  text-align: left;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.review-option:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(20, 20, 30, 0.08); }
+.review-option:disabled { cursor: default; }
+.review-option.correct { border-color: var(--correct); background: var(--correct-bg); color: var(--correct); font-weight: 600; }
+.review-option.wrong { border-color: var(--wrong); background: var(--wrong-bg); color: var(--wrong); }
