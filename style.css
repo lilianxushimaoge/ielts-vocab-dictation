@@ -482,6 +482,56 @@ table.record-table td.no { color: var(--wrong); }
 }
 .detail-word.correct { color: var(--correct); border-color: var(--correct); background: var(--correct-bg); }
 .detail-word.wrong { color: var(--wrong); border-color: var(--wrong); background: var(--wrong-bg); }
+.detail-word.clickable { cursor: pointer; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.detail-word.clickable:hover { transform: translateY(-2px); }
+
+.wrong-review-day { margin-bottom: 16px; }
+.wrong-review-day:last-child { margin-bottom: 0; }
+.wrong-review-date { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+
+.word-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.word-modal-card {
+  position: relative;
+  background: #fff;
+  border-radius: 16px;
+  padding: 36px 24px 26px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  animation: feedbackIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.word-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+}
+.word-modal-speak {
+  background: none;
+  border: none;
+  font-size: 34px;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 4px;
+}
+.word-modal-en { font-size: 26px; font-weight: 700; margin-top: 6px; }
+.word-modal-ipa { font-size: 15px; color: var(--primary); margin-top: 6px; }
+.word-modal-zh { font-size: 15px; color: var(--text); margin-top: 10px; }
 
 .empty-tip {
   text-align: center;

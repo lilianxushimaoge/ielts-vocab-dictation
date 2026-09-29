@@ -1198,6 +1198,26 @@ function renderHistory() {
     });
   }
   html += "</div>";
+
+  // 错题回顾：按错题产生的日期分组列出错词，点开单词可以看发音/音标/释义
+  html += '<div class="card"><h2>错题回顾</h2>';
+  const wrongDays = getWrongDates();
+  if (!wrongDays.length) {
+    html += '<div class="empty-tip">还没有错题</div>';
+  } else {
+    wrongDays.forEach((d) => {
+      html += `<div class="wrong-review-day">
+        <div class="wrong-review-date">${escapeHtml(d.date)}</div>
+        <div class="detail-word-list">`;
+      d.words.forEach((w) => {
+        html += `<span class="detail-word wrong clickable" data-word-card="${escapeHtml(
+          w.en
+        )}" data-word-zh="${escapeHtml(w.zh)}">${escapeHtml(w.en)}</span>`;
+      });
+      html += "</div></div>";
+    });
+  }
+  html += "</div>";
   return html;
 }
 
@@ -1239,6 +1259,81 @@ function bindHistory() {
       render();
     };
   });
+  document.querySelectorAll("[data-word-card]").forEach((el) => {
+    el.onclick = () => openWordCard(el.dataset.wordCard, el.dataset.wordZh);
+  });
+}
+
+/* ---------------- 单词详情卡片（发音 + 英文 + 中文 + 英式音标） ---------------- */
+
+let wordCardState = null; // { en, zh, ipa, loading }
+
+// 免费词典 API，用来查英式音标；本地词库没有存音标，所以按需现查
+async function fetchIpa(word) {
+  const tryFetch = async (variant) => {
+    try {
+      const res = await fetch(
+        `https://api.dictionaryapi.dev/api/v2/entries/${variant}/${encodeURIComponent(word)}`
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      for (const entry of data) {
+        if (Array.isArray(entry.phonetics)) {
+          const hit = entry.phonetics.find((p) => p.text);
+          if (hit) return hit.text;
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  };
+  return (await tryFetch("en_GB")) || (await tryFetch("en")) || null;
+}
+
+function openWordCard(en, zh) {
+  wordCardState = { en, zh, ipa: null, loading: true };
+  renderWordCardModal();
+  speak(en);
+  fetchIpa(en).then((ipa) => {
+    if (!wordCardState || wordCardState.en !== en) return; // 卡片已经关闭或换了词，结果作废
+    wordCardState.ipa = ipa;
+    wordCardState.loading = false;
+    renderWordCardModal();
+  });
+}
+
+function closeWordCard() {
+  wordCardState = null;
+  renderWordCardModal();
+}
+
+function renderWordCardModal() {
+  const overlay = document.getElementById("wordCardOverlay");
+  if (!overlay) return;
+  if (!wordCardState) {
+    overlay.innerHTML = "";
+    return;
+  }
+  const s = wordCardState;
+  overlay.innerHTML = `
+    <div class="word-modal-backdrop" id="wordModalBackdrop">
+      <div class="word-modal-card">
+        <button class="word-modal-close" id="wordModalClose">✕</button>
+        <button class="word-modal-speak" id="wordModalSpeak" title="点击听发音">🔊</button>
+        <div class="word-modal-en">${escapeHtml(s.en)}</div>
+        <div class="word-modal-ipa">${
+          s.loading ? "音标加载中…" : s.ipa ? escapeHtml(s.ipa) : "暂无音标"
+        }</div>
+        <div class="word-modal-zh">${escapeHtml(s.zh)}</div>
+      </div>
+    </div>
+  `;
+  document.getElementById("wordModalClose").onclick = closeWordCard;
+  document.getElementById("wordModalSpeak").onclick = () => speak(s.en);
+  document.getElementById("wordModalBackdrop").onclick = (e) => {
+    if (e.target.id === "wordModalBackdrop") closeWordCard();
+  };
 }
 
 /* ---------------- 初始化 ---------------- */
