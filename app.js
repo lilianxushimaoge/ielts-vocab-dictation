@@ -239,6 +239,78 @@ function sortByPdfOrder(words) {
     .map((x) => x.w);
 }
 
+// 全部单词的扁平列表（去重），供"温习错题"生成混淆选项时使用
+let _allWordsFlat = null;
+function getAllWordsFlat() {
+  if (_allWordsFlat) return _allWordsFlat;
+  const list = [];
+  const seen = new Set();
+  Object.keys(WORD_BANK).forEach((themeKey) => {
+    WORD_BANK[themeKey].categories.forEach((cat) => {
+      cat.words.forEach((w) => {
+        if (!seen.has(w.en)) {
+          seen.add(w.en);
+          list.push({ en: w.en, zh: w.zh });
+        }
+      });
+    });
+  });
+  _allWordsFlat = list;
+  return list;
+}
+
+// 编辑距离，用来衡量两个单词"长得像不像"
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = [];
+  for (let i = 0; i <= m; i++) dp.push([i]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// 为某个错题单词生成 4 个中文释义选项：1 个正确答案 + 3 个"拼写长得像但意思无关"的干扰项
+function buildReviewChoices(word) {
+  const all = getAllWordsFlat();
+  const target = word.en.toLowerCase();
+  const candidates = all
+    .filter((w) => w.en.toLowerCase() !== target && w.zh !== word.zh)
+    .map((w) => ({ en: w.en, zh: w.zh, dist: levenshtein(target, w.en.toLowerCase()) }))
+    .sort((a, b) => a.dist - b.dist);
+  const pool = shuffleArray(candidates.slice(0, 15));
+  const usedZh = new Set([word.zh]);
+  const distractors = [];
+  for (const c of pool) {
+    if (distractors.length >= 3) break;
+    if (usedZh.has(c.zh)) continue;
+    usedZh.add(c.zh);
+    distractors.push(c.zh);
+  }
+  while (distractors.length < 3 && all.length) {
+    const r = all[Math.floor(Math.random() * all.length)];
+    if (!usedZh.has(r.zh)) {
+      usedZh.add(r.zh);
+      distractors.push(r.zh);
+    }
+  }
+  return shuffleArray([word.zh, ...distractors]);
+}
+
 function getThemeWords(themeKey, subset, categoryKeys) {
   const theme = WORD_BANK[themeKey];
   const words = [];
@@ -385,6 +457,73 @@ function startWrongSession(date) {
   render();
 }
 
+/* ---------------- 错题温习（听音选中文释义，错了就重新排到后面，直到全部选对） ---------------- */
+
+let reviewSession = null;
+
+function startReviewSession(date) {
+  const days = getWrongDates();
+  const day = days.find((d) => d.date === date);
+  if (!day || !day.words.length) return;
+  const words = sortByPdfOrder(
+    day.words.map((r) => ({ en: r.en, zh: r.zh, alt: r.alt || null }))
+  );
+  reviewSession = {
+    date,
+    totalUnique: words.length,
+    doneCount: 0,
+    queue: words.slice(),
+    current: null,
+    choices: null,
+    answered: false,
+    selectedIndex: null,
+  };
+  mode = "review";
+  advanceReview();
+  render();
+}
+
+function advanceReview() {
+  const rs = reviewSession;
+  if (!rs.queue.length) {
+    rs.current = null;
+    rs.choices = null;
+    return;
+  }
+  rs.current = rs.queue.shift();
+  rs.choices = buildReviewChoices(rs.current);
+  rs.answered = false;
+  rs.selectedIndex = null;
+}
+
+function selectReviewChoice(i) {
+  const rs = reviewSession;
+  if (rs.answered || !rs.current) return;
+  rs.selectedIndex = i;
+  rs.answered = true;
+  const correct = rs.choices[i] === rs.current.zh;
+  if (correct) {
+    rs.doneCount++;
+    playCorrectSound();
+  } else {
+    rs.queue.push(rs.current); // 选错了，放到队列末尾，之后还会再考一次
+    playWrongSound();
+  }
+  render();
+}
+
+function nextReviewQuestion() {
+  advanceReview();
+  render();
+}
+
+function exitReviewSession() {
+  if (!confirm("要退出本次温习吗？还没温习完的错题下次可以重新开始。")) return;
+  reviewSession = null;
+  mode = "wrongbook";
+  render();
+}
+
 function submitAnswer() {
   const input = document.getElementById("answerInput");
   const userAnswer = input ? input.value : "";
@@ -443,7 +582,8 @@ function render() {
   document.querySelectorAll("#mainTabs button").forEach((b) => {
     const active =
       b.dataset.tab === mode ||
-      ((mode === "dictation" || mode === "summary") && b.dataset.tab === "home");
+      ((mode === "dictation" || mode === "summary") && b.dataset.tab === "home") ||
+      (mode === "review" && b.dataset.tab === "wrongbook");
     b.classList.toggle("active", active);
   });
 
@@ -463,6 +603,9 @@ function render() {
   } else if (mode === "summary") {
     view.innerHTML = renderSummary();
     bindSummary();
+  } else if (mode === "review") {
+    view.innerHTML = renderReview();
+    bindReview();
   }
 }
 
@@ -776,6 +919,7 @@ function renderWrongbook() {
       html += `<div class="day-item">
         <div class="info"><div class="date">${d.date}</div><div class="stats">${d.words.length} 个错题</div></div>
         <div class="actions">
+          <button class="btn small secondary" data-review="${d.date}">温习这天错题</button>
           <button class="btn small" data-relisten="${d.date}">听写这天错题</button>
           <button class="btn small ghost danger" data-delete-wrong="${d.date}">删除</button>
         </div>
@@ -787,6 +931,9 @@ function renderWrongbook() {
 }
 
 function bindWrongbook() {
+  document.querySelectorAll("[data-review]").forEach((el) => {
+    el.onclick = () => startReviewSession(el.dataset.review);
+  });
   document.querySelectorAll("[data-relisten]").forEach((el) => {
     el.onclick = () => startWrongSession(el.dataset.relisten);
   });
@@ -798,6 +945,101 @@ function bindWrongbook() {
       render();
     };
   });
+}
+
+/* ---- 错题温习页 ---- */
+
+function renderReview() {
+  const rs = reviewSession;
+  let html = '<div class="card">';
+  html += `<div class="dictation-topbar">
+    <button class="exit-btn" id="exitReviewBtn" title="退出本次温习">‹ 退出</button>
+  </div>`;
+
+  if (!rs.current) {
+    html += `<h2>温习完成</h2><div class="empty-tip">🎉 ${escapeHtml(
+      rs.date
+    )} 的错题已经全部温习正确！</div>`;
+    html += '<button class="btn" id="backToWrongbookBtn">返回错题本</button>';
+    html += "</div>";
+    return html;
+  }
+
+  const remaining = rs.queue.length + 1;
+  html += `<div class="section-label">错题温习 · ${escapeHtml(
+    rs.date
+  )} · 已掌握 ${rs.doneCount}/${rs.totalUnique} · 待温习 ${remaining} 个（含重考）</div>`;
+  html += '<div class="dictation-stage" style="padding:34px 16px 24px;">';
+  html += '<button class="speak-btn" id="speakBtn" title="点击听发音">🔊</button>';
+  html += '<div class="hint-line">点击喇叭听发音，选出对应的中文释义</div>';
+  html += "</div>";
+
+  html += '<div class="review-options">';
+  rs.choices.forEach((zh, i) => {
+    let cls = "review-option";
+    if (rs.answered) {
+      if (zh === rs.current.zh) cls += " correct";
+      else if (i === rs.selectedIndex) cls += " wrong";
+    }
+    html += `<button class="${cls}" data-choice="${i}" ${
+      rs.answered ? "disabled" : ""
+    }>${escapeHtml(zh)}</button>`;
+  });
+  html += "</div>";
+
+  if (rs.answered) {
+    const correct = rs.choices[rs.selectedIndex] === rs.current.zh;
+    html += `<div class="feedback ${correct ? "correct" : "wrong"}">`;
+    html += correct ? "✅ 回答正确！" : "❌ 回答错误，这道题会被放到后面重考";
+    html += `<div class="answer-word">${escapeHtml(rs.current.en)}${
+      rs.current.alt ? ` <span class="alt-spelling">/ ${escapeHtml(rs.current.alt)}</span>` : ""
+    }</div>`;
+    html += `<div class="meaning">${escapeHtml(rs.current.zh)}</div>`;
+    html += "</div>";
+    html += '<button class="btn" id="nextReviewBtn">下一个</button>';
+  }
+
+  html += "</div>";
+  return html;
+}
+
+function bindReview() {
+  const exitBtn = document.getElementById("exitReviewBtn");
+  if (exitBtn) exitBtn.onclick = exitReviewSession;
+
+  const backBtn = document.getElementById("backToWrongbookBtn");
+  if (backBtn) {
+    backBtn.onclick = () => {
+      reviewSession = null;
+      mode = "wrongbook";
+      render();
+    };
+  }
+
+  const rs = reviewSession;
+  if (!rs.current) return;
+
+  const speakBtn = document.getElementById("speakBtn");
+  if (speakBtn) {
+    speakBtn.onclick = () => {
+      speak(rs.current.en);
+      speakBtn.classList.remove("playing");
+      void speakBtn.offsetWidth;
+      speakBtn.classList.add("playing");
+    };
+  }
+
+  document.querySelectorAll("[data-choice]").forEach((el) => {
+    el.onclick = () => selectReviewChoice(Number(el.dataset.choice));
+  });
+
+  const nextBtn = document.getElementById("nextReviewBtn");
+  if (nextBtn) nextBtn.onclick = nextReviewQuestion;
+
+  if (!rs.answered) {
+    speak(rs.current.en);
+    if (speakBtn) speakBtn.classList.add("playing");
+  }
 }
 
 /* ---- 历史记录 / 导出 ---- */
@@ -957,6 +1199,32 @@ document.addEventListener("keydown", (e) => {
       void speakBtn.offsetWidth;
       speakBtn.classList.add("playing");
     }
+  }
+});
+
+// 错题温习页快捷键：数字 1-4 选择对应选项，Enter 在看到反馈后进入下一题，Tab 重新朗读
+document.addEventListener("keydown", (e) => {
+  if (mode !== "review" || !reviewSession || !reviewSession.current) return;
+  const rs = reviewSession;
+  if (e.key === "Tab") {
+    e.preventDefault();
+    speak(rs.current.en);
+    const speakBtn = document.getElementById("speakBtn");
+    if (speakBtn) {
+      speakBtn.classList.remove("playing");
+      void speakBtn.offsetWidth;
+      speakBtn.classList.add("playing");
+    }
+    return;
+  }
+  if (!rs.answered && /^[1-4]$/.test(e.key)) {
+    const i = Number(e.key) - 1;
+    if (i < rs.choices.length) selectReviewChoice(i);
+    return;
+  }
+  if (rs.answered && e.key === "Enter") {
+    e.preventDefault();
+    nextReviewQuestion();
   }
 });
 
